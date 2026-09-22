@@ -3,168 +3,172 @@ const http = require('http');
 const { Server } = require('socket.io');
 const multer = require('multer');
 const path = require('path');
+const cors = require('cors');
+const db = require('./database');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
 
-// Serve static files from the 'public' directory
-app.use(express.static('public'));
+// Allow CORS from Vite dev server
+const io = new Server(server, {
+    cors: {
+        origin: "http://localhost:5173",
+        methods: ["GET", "POST"]
+    }
+});
+
+app.use(cors());
 app.use(express.json());
+// Serve static media files
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
-// Configure Multer for file uploads
+// Configure Multer
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, 'public/uploads/');
     },
     filename: (req, file, cb) => {
-        // Create unique filenames with original extension
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const ext = path.extname(file.originalname).toLowerCase();
-        cb(null, uniqueSuffix + ext);
+        cb(null, uniqueSuffix + path.extname(file.originalname).toLowerCase());
     }
 });
 
+const allowedExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.mp4', '.webm', '.ogg'];
 const fileFilter = (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedExtensions.includes(ext)) {
         cb(null, true);
     } else {
-        cb(new Error('Formato de archivo no permitido'));
+        cb(new Error('Format not allowed'));
     }
 };
 
 const upload = multer({ storage: storage, fileFilter: fileFilter });
 
-// Global array to store scheduled content
-let schedules = [];
-
-// Global immediate state
-let currentImmediateState = {};
-
-// Keep track of the last emitted schedule per screen to avoid redundant emits
-let lastEmittedSchedules = {};
-
-// Allowed media extensions
-const allowedExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.mp4', '.webm', '.ogg'];
-
-// Upload Endpoint
+// API: Upload Media
 app.post('/api/upload', upload.single('mediaFile'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded.' });
     }
-    // Return the public URL of the uploaded file
     const fileUrl = `/uploads/${req.file.filename}`;
-    res.json({ fileUrl: fileUrl });
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const type = ['.mp4', '.webm', '.ogg'].includes(ext) ? 'video' : 'image';
+
+    db.run(
+        `INSERT INTO media (type, url, originalName) VALUES (?, ?, ?)`,
+        [type, fileUrl, req.file.originalname],
+        function(err) {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ id: this.lastID, type, url: fileUrl, originalName: req.file.originalname });
+        }
+    );
 });
 
-// Listen for connections
+// API: Get all Media
+app.get('/api/media', (req, res) => {
+    db.all(`SELECT * FROM media ORDER BY id DESC`, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// API: Create a Playlist
+app.post('/api/playlists', (req, res) => {
+    const { name, items } = req.body;
+    if (!name || !items || !Array.isArray(items)) {
+        return res.status(400).json({ error: 'Invalid data' });
+    }
+    const itemsJson = JSON.stringify(items);
+
+    db.run(
+        `INSERT INTO playlists (name, items_json) VALUES (?, ?)`,
+        [name, itemsJson],
+        function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ id: this.lastID, name, items });
+        }
+    );
+});
+
+// API: Get all Playlists
+app.get('/api/playlists', (req, res) => {
+    db.all(`SELECT * FROM playlists ORDER BY id DESC`, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const playlists = rows.map(r => ({ ...r, items: JSON.parse(r.items_json) }));
+        res.json(playlists);
+    });
+});
+
+// API: Get all Screens
+app.get('/api/screens', (req, res) => {
+    db.all(`SELECT * FROM screens`, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// API: Assign Playlist to Screen (to be extended with socket logic)
+app.post('/api/screens/:id/assign', (req, res) => {
+    const screenId = req.params.id;
+    const { playlistId } = req.body;
+
+    // Check if playlist exists
+    db.get(`SELECT * FROM playlists WHERE id = ?`, [playlistId], (err, playlistRow) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!playlistRow) return res.status(404).json({ error: 'Playlist not found' });
+
+        db.run(
+            `UPDATE screens SET current_playlist_id = ? WHERE id = ?`,
+            [playlistId, screenId],
+            (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+
+                // Emit socket event
+                const playlistData = {
+                    ...playlistRow,
+                    items: JSON.parse(playlistRow.items_json)
+                };
+                io.to(screenId).emit('playlistUpdated', playlistData);
+
+                res.json({ success: true, screenId, playlistId });
+            }
+        );
+    });
+});
+
+// WebSockets logic
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
 
-    // Register a screen to a specific room
     socket.on('registerScreen', (screenId) => {
         console.log(`Socket ${socket.id} joined screen room: ${screenId}`);
         socket.join(screenId);
 
-        // Always send active scheduled content if it exists
-        let activeSchedule = null;
-        const now = new Date();
-        schedules.forEach(schedule => {
-            const start = new Date(schedule.startTime);
-            const end = new Date(schedule.endTime);
-            if (now >= start && now <= end) {
-                if (schedule.targetScreen === screenId || (!schedule.targetScreen || schedule.targetScreen === 'all')) {
-                    activeSchedule = schedule;
-                }
+        // Ensure the screen is tracked in the DB. If not, create it.
+        db.get(`SELECT * FROM screens WHERE id = ?`, [screenId], (err, row) => {
+            if (!err && !row) {
+                db.run(`INSERT INTO screens (id, name) VALUES (?, ?)`, [screenId, `Screen ${screenId}`]);
+            } else if (row && row.current_playlist_id) {
+                // If the screen already has a playlist assigned, send it right away
+                db.get(`SELECT * FROM playlists WHERE id = ?`, [row.current_playlist_id], (err, playlistRow) => {
+                    if (playlistRow) {
+                        const playlistData = {
+                            ...playlistRow,
+                            items: JSON.parse(playlistRow.items_json)
+                        };
+                        socket.emit('playlistUpdated', playlistData);
+                    }
+                });
             }
         });
-
-        if (activeSchedule) {
-            socket.emit('updateContent', activeSchedule);
-        } else if (currentImmediateState[screenId]) {
-            socket.emit('updateContent', currentImmediateState[screenId]);
-        } else if (currentImmediateState['all']) {
-            socket.emit('updateContent', currentImmediateState['all']);
-        }
-    });
-
-    // Listen for immediate updates from the admin panel
-    socket.on('updateContent', (data) => {
-        console.log('Received immediate update:', data);
-
-        // If a specific screen is targeted, emit only to that room.
-        // Otherwise, broadcast to all.
-        if (data.targetScreen && data.targetScreen.trim() !== "" && data.targetScreen !== "all") {
-            currentImmediateState[data.targetScreen] = data; // Persist state
-            io.to(data.targetScreen).emit('updateContent', data);
-        } else {
-            currentImmediateState['all'] = data; // Persist global state
-            // targetScreen == "all" is now handled properly with io.emit
-            io.emit('updateContent', data);
-        }
-    });
-
-    // Listen for scheduled content additions
-    socket.on('scheduleContent', (data) => {
-        console.log('Received new schedule:', data);
-        // Add an ID to the schedule for easier tracking
-        data.id = Date.now().toString();
-        schedules.push(data);
     });
 
     socket.on('disconnect', () => {
         console.log('User disconnected:', socket.id);
     });
 });
-
-// Periodic Check for Scheduled Content
-setInterval(() => {
-    const now = new Date();
-
-    // Group active schedules by screenId
-    const activeByScreen = {};
-
-    schedules.forEach(schedule => {
-        const start = new Date(schedule.startTime);
-        const end = new Date(schedule.endTime);
-
-        if (now >= start && now <= end) {
-            const screen = schedule.targetScreen || 'all';
-
-            // In case of multiple active schedules for a screen,
-            // we take the latest added one for simplicity, or we could handle queueing.
-            activeByScreen[screen] = schedule;
-        }
-    });
-
-    // Emit active content ONLY if it changed for the given screenId
-    for (const screenId in activeByScreen) {
-        const content = activeByScreen[screenId];
-
-        // Check if we already emitted this specific schedule ID to this screen
-        if (!lastEmittedSchedules[screenId] || lastEmittedSchedules[screenId].id !== content.id) {
-
-            // We add a flag to distinguish scheduled updates from immediate updates, if necessary.
-            content.isScheduled = true;
-            lastEmittedSchedules[screenId] = content;
-
-            if (screenId === 'all') {
-                io.emit('updateContent', content);
-            } else {
-                io.to(screenId).emit('updateContent', content);
-            }
-        }
-    }
-
-    // Cleanup lastEmittedSchedules if no schedule is active anymore for that screen
-    for (const screenId in lastEmittedSchedules) {
-        if (!activeByScreen[screenId]) {
-            delete lastEmittedSchedules[screenId];
-        }
-    }
-
-}, 1000); // Check every second
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
