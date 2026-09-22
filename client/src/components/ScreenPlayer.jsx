@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE = '';
 
 function ScreenPlayer() {
   const { id: screenId } = useParams();
@@ -14,7 +14,9 @@ function ScreenPlayer() {
 
   useEffect(() => {
     // Connect to Socket.IO Server
-    const socket = io(API_BASE);
+    // By providing an empty string (or not passing API_BASE if it's empty)
+    // it connects to the same origin (the Vite proxy).
+    const socket = io({ path: '/socket.io' });
 
     socket.on('connect', () => {
       console.log(`Connected with socket id: ${socket.id}`);
@@ -58,7 +60,17 @@ function ScreenPlayer() {
 
   const advancePlaylist = () => {
     if (!playlist || !playlist.items) return;
-    setCurrentIndex((prevIndex) => (prevIndex + 1) % playlist.items.length);
+
+    setCurrentIndex((prevIndex) => {
+      const nextIndex = (prevIndex + 1) % playlist.items.length;
+      // If there's only one video item, React won't re-render on state = 0 -> 0.
+      // So we manually tell the video element to play again from start.
+      if (nextIndex === prevIndex && videoRef.current) {
+        videoRef.current.currentTime = 0;
+        videoRef.current.play().catch(e => console.error("Error replaying video:", e));
+      }
+      return nextIndex;
+    });
   };
 
   if (!playlist || !playlist.items || playlist.items.length === 0) {

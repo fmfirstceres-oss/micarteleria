@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE = '';
 
 function ScreenManager() {
   const [screens, setScreens] = useState([]);
