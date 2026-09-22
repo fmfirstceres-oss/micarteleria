@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Control - Cartelería</title>
+    <!-- Usamos el mismo CSS para estilos generales -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body style="background-color: #e9ecef; align-items: flex-start; padding-top: 50px; overflow: auto;">
+
+    <div class="admin-container">
+        <h2 style="text-align: center;">Administrar Cartelería</h2>
+
+        <form id="admin-form" class="admin-form">
+            <label for="mainText">Texto Principal:</label>
+            <input type="text" id="mainText" placeholder="Ej: ¡Oferta Especial!">
+
+            <label for="subText">Texto Secundario:</label>
+            <input type="text" id="subText" placeholder="Ej: Solo por hoy, 50% de descuento.">
+
+            <label for="imageUrl">URL de Imagen (Opcional):</label>
+            <input type="text" id="imageUrl" placeholder="http://ejemplo.com/imagen.jpg">
+
+            <button type="submit">Actualizar Pantallas</button>
+        </form>
+    </div>
+
+    <!-- Cargar Socket.io -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="admin.js"></script>
+</body>
+</html>
