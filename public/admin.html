@@ -12,17 +12,28 @@
     <div class="admin-container">
         <h2 style="text-align: center;">Administrar Cartelería</h2>
 
-        <form id="admin-form" class="admin-form">
+        <form id="admin-form" class="admin-form" enctype="multipart/form-data">
+            <label for="targetScreen">Pantalla Destino (ID o 'all'):</label>
+            <input type="text" id="targetScreen" placeholder="Ej: 1 (dejar vacío o 'all' para todas)">
+
             <label for="mainText">Texto Principal:</label>
             <input type="text" id="mainText" placeholder="Ej: ¡Oferta Especial!">
 
             <label for="subText">Texto Secundario:</label>
             <input type="text" id="subText" placeholder="Ej: Solo por hoy, 50% de descuento.">
 
-            <label for="imageUrl">URL de Imagen (Opcional):</label>
-            <input type="text" id="imageUrl" placeholder="http://ejemplo.com/imagen.jpg">
+            <label for="mediaFile">Subir Archivo (Imagen o Video):</label>
+            <input type="file" id="mediaFile" accept="image/*,video/*">
 
-            <button type="submit">Actualizar Pantallas</button>
+            <p style="text-align:center; font-size: 0.9em; margin-bottom:0;">--- Opcional: Programar Horario ---</p>
+
+            <label for="startTime">Fecha/Hora de Inicio:</label>
+            <input type="datetime-local" id="startTime">
+
+            <label for="endTime">Fecha/Hora de Fin:</label>
+            <input type="datetime-local" id="endTime">
+
+            <button type="submit">Actualizar / Programar Pantallas</button>
         </form>
     </div>
 
