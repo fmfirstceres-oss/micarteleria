@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Admin - Cartelería</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body style="background-color: #e9ecef; align-items: flex-start; padding-top: 50px; overflow: auto;">
+    <div class="admin-container">
+        <h2 style="text-align: center;">Administrar Pantallas</h2>
+
+        <form id="admin-form" class="admin-form" enctype="multipart/form-data">
+            <label for="targetScreen">Pantalla Destino (ID o 'all'):</label>
+            <input type="text" id="targetScreen" placeholder="Ej: 1 (dejar vacío o 'all' para todas)">
+
+            <label for="mainText">Texto Principal:</label>
+            <input type="text" id="mainText" placeholder="Ej: ¡Oferta Especial!">
+
+            <label for="subText">Texto Secundario:</label>
+            <input type="text" id="subText" placeholder="Ej: Solo por hoy, 50% de descuento.">
+
+            <label for="mediaFile">Subir Archivo (Imagen o Video):</label>
+            <input type="file" id="mediaFile" accept="image/*,video/*">
+
+            <button type="submit">Actualizar Pantallas</button>
+        </form>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="admin.js"></script>
+</body>
+</html>
